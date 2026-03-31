@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 const WS_URL = typeof window !== "undefined" && window.location.hostname !== "localhost"
-  ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/uspace/ws`
+  ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`
   : "ws://localhost:9090";
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 10000];
 
