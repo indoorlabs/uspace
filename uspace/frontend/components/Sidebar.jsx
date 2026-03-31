@@ -2,9 +2,13 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
-const WS_URL = typeof window !== "undefined" && window.location.hostname !== "localhost"
-  ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`
-  : "ws://localhost:9090";
+function getWsUrl() {
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}/ws`;
+  }
+  return "ws://localhost:9090";
+}
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 10000];
 
 const TABS = [
@@ -100,7 +104,7 @@ export default function Sidebar() {
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
     ws.onopen = () => {
