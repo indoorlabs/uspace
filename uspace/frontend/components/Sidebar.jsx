@@ -156,7 +156,7 @@ export default function Sidebar() {
   useEffect(() => {
     connect();
     // Fetch available building JSON files
-    fetch("/api/building-files")
+    fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/api/building-files`)
       .then((r) => r.json())
       .then((d) => {
         if (d.files?.length) {
@@ -457,7 +457,7 @@ export default function Sidebar() {
     setBuildingStatus("converting");
     setBuildingError(null);
     try {
-      const res = await fetch("/api/convert-sdf", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/api/convert-sdf`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filename: selectedFile }),
@@ -465,7 +465,7 @@ export default function Sidebar() {
       if (!res.ok) throw new Error("SDF conversion failed");
 
       setBuildingStatus("loading");
-      const loadRes = await fetch("/api/gazebo-load", { method: "POST" });
+      const loadRes = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/api/gazebo-load`, { method: "POST" });
       if (!loadRes.ok) {
         const err = await loadRes.json();
         throw new Error(err.error || "Gazebo load failed");
