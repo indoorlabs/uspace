@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  basePath: process.env.BASE_PATH || "",
+  // basePath removed — using subdomain (uspace.gongvue.com) instead
   transpilePackages: ["three"],
   webpack: (config) => {
     // web-ifc-three의 WASM 파일 처리
