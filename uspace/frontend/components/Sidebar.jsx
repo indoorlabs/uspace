@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
-const WS_URL = "ws://localhost:9090";
+const WS_URL = typeof window !== "undefined" && window.location.hostname !== "localhost"
+  ? `wss://${window.location.host}/uspace/ws`
+  : "ws://localhost:9090";
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 10000];
 
 const TABS = [
