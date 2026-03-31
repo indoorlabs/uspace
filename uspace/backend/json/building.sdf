@@ -1,0 +1,646 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <world name="uspace_world">
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"/>
+
+    <physics type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.3 0.3 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="building">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+
+      <link name="1F_space_0">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.298221 0.987000</point>
+              <point>-0.198221 0.987000</point>
+              <point>-0.198217 0.087000</point>
+              <point>-0.298217 0.087000</point>
+              <point>-0.298211 -1.775000</point>
+              <point>-1.749800 -1.775000</point>
+              <point>-1.749800 -1.975000</point>
+              <point>-2.649800 -1.975000</point>
+              <point>-2.649800 -1.775000</point>
+              <point>-3.525000 -1.775000</point>
+              <point>-3.525000 1.975000</point>
+              <point>-0.298224 1.975000</point>
+              <height>0.050000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.800 0.800 0.667 1.000</ambient>
+            <diffuse>0.800 0.800 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.298221 0.987000</point>
+              <point>-0.198221 0.987000</point>
+              <point>-0.198217 0.087000</point>
+              <point>-0.298217 0.087000</point>
+              <point>-0.298211 -1.775000</point>
+              <point>-1.749800 -1.775000</point>
+              <point>-1.749800 -1.975000</point>
+              <point>-2.649800 -1.975000</point>
+              <point>-2.649800 -1.775000</point>
+              <point>-3.525000 -1.775000</point>
+              <point>-3.525000 1.975000</point>
+              <point>-0.298224 1.975000</point>
+              <height>0.050000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_space_1">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>3.525000 -1.775000</point>
+              <point>-0.098211 -1.775000</point>
+              <point>-0.098217 0.087000</point>
+              <point>-0.198217 0.087000</point>
+              <point>-0.198221 0.987000</point>
+              <point>-0.098221 0.987000</point>
+              <point>-0.098224 1.975000</point>
+              <point>3.525000 1.975000</point>
+              <height>0.050000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.800 0.800 0.667 1.000</ambient>
+            <diffuse>0.800 0.800 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>3.525000 -1.775000</point>
+              <point>-0.098211 -1.775000</point>
+              <point>-0.098217 0.087000</point>
+              <point>-0.198217 0.087000</point>
+              <point>-0.198221 0.987000</point>
+              <point>-0.098221 0.987000</point>
+              <point>-0.098224 1.975000</point>
+              <point>3.525000 1.975000</point>
+              <height>0.050000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_column_2">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-2.456800 1.139600</point>
+              <point>-2.806800 1.139600</point>
+              <point>-2.806800 1.489600</point>
+              <point>-2.456800 1.489600</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.400 0.467 0.533 1.000</ambient>
+            <diffuse>0.400 0.467 0.533 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-2.456800 1.139600</point>
+              <point>-2.806800 1.139600</point>
+              <point>-2.806800 1.489600</point>
+              <point>-2.456800 1.489600</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_3">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.198225 1.975000</point>
+              <point>-3.725000 1.975000</point>
+              <point>-3.725000 2.175000</point>
+              <point>-0.198225 2.175000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.198225 1.975000</point>
+              <point>-3.725000 1.975000</point>
+              <point>-3.725000 2.175000</point>
+              <point>-0.198225 2.175000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_4">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>3.725000 1.975000</point>
+              <point>-0.198225 1.975000</point>
+              <point>-0.198225 2.175000</point>
+              <point>3.725000 2.175000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>3.725000 1.975000</point>
+              <point>-0.198225 1.975000</point>
+              <point>-0.198225 2.175000</point>
+              <point>3.725000 2.175000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_5">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>3.725000 -1.975000</point>
+              <point>3.525000 -1.975000</point>
+              <point>3.525000 1.975000</point>
+              <point>3.725000 1.975000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>3.725000 -1.975000</point>
+              <point>3.525000 -1.975000</point>
+              <point>3.525000 1.975000</point>
+              <point>3.725000 1.975000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_6">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>3.525000 -1.975000</point>
+              <point>-0.198210 -1.975000</point>
+              <point>-0.198210 -1.775000</point>
+              <point>3.525000 -1.775000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>3.525000 -1.975000</point>
+              <point>-0.198210 -1.975000</point>
+              <point>-0.198210 -1.775000</point>
+              <point>3.525000 -1.775000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_7">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-2.649800 -1.975000</point>
+              <point>-3.725000 -1.975000</point>
+              <point>-3.725000 -1.775000</point>
+              <point>-2.649800 -1.775000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-2.649800 -1.975000</point>
+              <point>-3.725000 -1.975000</point>
+              <point>-3.725000 -1.775000</point>
+              <point>-2.649800 -1.775000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_8">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.198210 -1.975000</point>
+              <point>-1.749800 -1.975000</point>
+              <point>-1.749800 -1.775000</point>
+              <point>-0.198210 -1.775000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.198210 -1.975000</point>
+              <point>-1.749800 -1.975000</point>
+              <point>-1.749800 -1.775000</point>
+              <point>-0.198210 -1.775000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_door_9">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-1.749800 -1.975000</point>
+              <point>-2.649800 -1.975000</point>
+              <point>-2.649800 -1.775000</point>
+              <point>-1.749800 -1.775000</point>
+              <height>2.100000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>1.000 0.400 0.267 0.500</ambient>
+            <diffuse>1.000 0.400 0.267 0.500</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <link name="1F_wall_above_door_10">
+        <pose>0 0 2.100000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-1.749800 -1.975000</point>
+              <point>-2.649800 -1.975000</point>
+              <point>-2.649800 -1.775000</point>
+              <point>-1.749800 -1.775000</point>
+              <height>0.900000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-1.749800 -1.975000</point>
+              <point>-2.649800 -1.975000</point>
+              <point>-2.649800 -1.775000</point>
+              <point>-1.749800 -1.775000</point>
+              <height>0.900000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_11">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-3.525000 -1.775000</point>
+              <point>-3.725000 -1.775000</point>
+              <point>-3.725000 1.975000</point>
+              <point>-3.525000 1.975000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-3.525000 -1.775000</point>
+              <point>-3.725000 -1.775000</point>
+              <point>-3.725000 1.975000</point>
+              <point>-3.525000 1.975000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_12">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.098211 -1.775000</point>
+              <point>-0.298211 -1.775000</point>
+              <point>-0.298212 -1.474200</point>
+              <point>-0.098212 -1.474200</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.098211 -1.775000</point>
+              <point>-0.298211 -1.775000</point>
+              <point>-0.298212 -1.474200</point>
+              <point>-0.098212 -1.474200</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_13">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.098216 -0.274200</point>
+              <point>-0.298216 -0.274200</point>
+              <point>-0.298217 0.087000</point>
+              <point>-0.098217 0.087000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.098216 -0.274200</point>
+              <point>-0.298216 -0.274200</point>
+              <point>-0.298217 0.087000</point>
+              <point>-0.098217 0.087000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_14">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.098221 0.987000</point>
+              <point>-0.298221 0.987000</point>
+              <point>-0.298224 1.975000</point>
+              <point>-0.098224 1.975000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.098221 0.987000</point>
+              <point>-0.298221 0.987000</point>
+              <point>-0.298224 1.975000</point>
+              <point>-0.098224 1.975000</point>
+              <height>3.000000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_door_15">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.098223 0.087000</point>
+              <point>-0.298223 0.087000</point>
+              <point>-0.298226 0.987000</point>
+              <point>-0.098226 0.987000</point>
+              <height>2.100000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>1.000 0.400 0.267 0.500</ambient>
+            <diffuse>1.000 0.400 0.267 0.500</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <link name="1F_wall_above_door_16">
+        <pose>0 0 2.100000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.098223 0.087000</point>
+              <point>-0.298223 0.087000</point>
+              <point>-0.298226 0.987000</point>
+              <point>-0.098226 0.987000</point>
+              <height>0.900000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.098223 0.087000</point>
+              <point>-0.298223 0.087000</point>
+              <point>-0.298226 0.987000</point>
+              <point>-0.098226 0.987000</point>
+              <height>0.900000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_window_17">
+        <pose>0 0 1.100000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.098222 -1.474200</point>
+              <point>-0.298222 -1.474200</point>
+              <point>-0.298227 -0.274200</point>
+              <point>-0.098227 -0.274200</point>
+              <height>1.200000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.267 0.667 1.000 1.000</ambient>
+            <diffuse>0.267 0.667 1.000 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.098222 -1.474200</point>
+              <point>-0.298222 -1.474200</point>
+              <point>-0.298227 -0.274200</point>
+              <point>-0.098227 -0.274200</point>
+              <height>1.200000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_above_window_18">
+        <pose>0 0 2.300000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.098222 -1.474200</point>
+              <point>-0.298222 -1.474200</point>
+              <point>-0.298227 -0.274200</point>
+              <point>-0.098227 -0.274200</point>
+              <height>0.700000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.098222 -1.474200</point>
+              <point>-0.298222 -1.474200</point>
+              <point>-0.298227 -0.274200</point>
+              <point>-0.098227 -0.274200</point>
+              <height>0.700000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+
+      <link name="1F_wall_below_window_19">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <polyline>
+              <point>-0.098222 -1.474200</point>
+              <point>-0.298222 -1.474200</point>
+              <point>-0.298227 -0.274200</point>
+              <point>-0.098227 -0.274200</point>
+              <height>1.100000</height>
+            </polyline>
+          </geometry>
+          <material>
+            <ambient>0.533 0.600 0.667 1.000</ambient>
+            <diffuse>0.533 0.600 0.667 1.000</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <polyline>
+              <point>-0.098222 -1.474200</point>
+              <point>-0.298222 -1.474200</point>
+              <point>-0.298227 -0.274200</point>
+              <point>-0.098227 -0.274200</point>
+              <height>1.100000</height>
+            </polyline>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+  </world>
+</sdf>

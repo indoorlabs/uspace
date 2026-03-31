@@ -1,0 +1,31 @@
+{
+  "name": "uspace",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "copy-wasm": "node scripts/copy-wasm.js",
+    "postinstall": "node scripts/copy-wasm.js"
+  },
+  "dependencies": {
+    "@notionhq/client": "^5.12.0",
+    "@react-three/drei": "^9.105.0",
+    "@react-three/fiber": "^8.16.0",
+    "camera-controls": "^3.1.2",
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "three": "^0.183.2",
+    "web-ifc": "^0.0.77",
+    "web-ifc-three": "^0.0.126",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.165.0",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.0"
+  }
+}

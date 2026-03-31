@@ -1,0 +1,113 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <world name="uspace_world">
+    <physics type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.15 0.15 0.15 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Red box - on ground -->
+    <model name="box_red">
+      <pose>2 0 0.5 0 0 0</pose>
+      <link name="link">
+        <inertial><mass>1.0</mass>
+          <inertia><ixx>0.167</ixx><iyy>0.167</iyy><izz>0.167</izz></inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><box><size>1 1 1</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1 1 1</size></box></geometry>
+          <material>
+            <ambient>0.8 0.1 0.1 1</ambient>
+            <diffuse>0.8 0.1 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Green box - dropped from height -->
+    <model name="box_green">
+      <pose>0 2 3.0 0 0 0</pose>
+      <link name="link">
+        <inertial><mass>1.0</mass>
+          <inertia><ixx>0.167</ixx><iyy>0.167</iyy><izz>0.167</izz></inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><box><size>1 1 1</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1 1 1</size></box></geometry>
+          <material>
+            <ambient>0.1 0.7 0.3 1</ambient>
+            <diffuse>0.1 0.7 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Blue box - dropped from higher -->
+    <model name="box_blue">
+      <pose>-2 0 5.0 0 0 0</pose>
+      <link name="link">
+        <inertial><mass>1.0</mass>
+          <inertia><ixx>0.167</ixx><iyy>0.167</iyy><izz>0.167</izz></inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><box><size>1 1 1</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1 1 1</size></box></geometry>
+          <material>
+            <ambient>0.1 0.3 0.8 1</ambient>
+            <diffuse>0.1 0.3 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Yellow sphere -->
+    <model name="sphere_yellow">
+      <pose>0 -2 4.0 0 0 0</pose>
+      <link name="link">
+        <inertial><mass>0.5</mass>
+          <inertia><ixx>0.04</ixx><iyy>0.04</iyy><izz>0.04</izz></inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><sphere><radius>0.5</radius></sphere></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><sphere><radius>0.5</radius></sphere></geometry>
+          <material>
+            <ambient>0.9 0.8 0.1 1</ambient>
+            <diffuse>0.9 0.8 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

@@ -1,0 +1,12 @@
+node_modules/
+.next/
+*.log
+.env
+.env.local
+__pycache__/
+*.pyc
+/tmp/
+__MACOSX/
+.claude/
+*.wasm
+webgpu/__MACOSX/
