@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { THEME } from "@/lib/constants";
 // No default building - loaded dynamically via Building tab
 const buildingData = { Stories: [], Spaces: [], Walls: [], Doors: [], Windows: [], Columns: [], Staircases: [] };
@@ -8,6 +8,10 @@ const buildingData = { Stories: [], Spaces: [], Walls: [], Doors: [], Windows: [
 export default function WebGPUViewer() {
   const mountRef = useRef(null);
   const viewerRef = useRef(null);
+  const minimapRef = useRef(null);
+  const [minimapVisible, setMinimapVisible] = useState(false);
+  const [mmPos, setMmPos] = useState({ x: typeof window !== "undefined" ? window.innerWidth - 230 : 500, y: 60 });
+  const mmDragRef = useRef({ dragging: false, ox: 0, oy: 0 });
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -18,11 +22,9 @@ export default function WebGPUViewer() {
     async function initWebGPU() {
       // Dynamic import to avoid SSR issues
       const THREE = await import("three/webgpu");
-      const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
       const CameraControlsModule = await import("camera-controls");
       const CameraControls = CameraControlsModule.default;
       CameraControls.install({ THREE });
-      const gltfLoader = new GLTFLoader();
 
       if (disposed) return;
 
@@ -74,7 +76,9 @@ export default function WebGPUViewer() {
       scene.add(ground);
 
       // Grid
-      scene.add(new THREE.GridHelper(80, 40, 0x1a2a3a, 0x111922));
+      // Grid: 80m size, 0.5m spacing = 160 divisions
+      scene.add(new THREE.GridHelper(80, 160, 0x1a2a3a, 0x111922));
+
 
       // --- Data references ---
       const SCALE = 0.01; // cm → m
@@ -728,6 +732,8 @@ export default function WebGPUViewer() {
         camera.updateProjectionMatrix();
         controls.setLookAt(8, 8, 8, 0, 0, 0, true);
         console.log("[Gazebo] Scene built. groupGazebo children:", groupGazebo.children.length, "gazeboMeshes:", Object.keys(gazeboMeshes));
+        // Update minimap data after scene is built
+        setTimeout(updateMinimapData, 500);
       };
 
       const onGazeboPoses = (e) => {
@@ -868,8 +874,215 @@ export default function WebGPUViewer() {
             mesh.quaternion.set(o.x || 0, o.z || 0, -(o.y || 0), o.w || 1);
           }
 
+          // Record robot path
+          if (pathRecordingActive && m.name.includes("robot") && robotPaths[m.name]?.recording) {
+            const pts = robotPaths[m.name].points;
+            const pos3 = mesh.position;
+            // Only record if moved enough (>0.05m)
+            const last = pts[pts.length - 1];
+            if (!last || Math.hypot(pos3.x - last.x, pos3.z - last.z) > 0.05) {
+              const q = mesh.quaternion;
+              pts.push({ x: pos3.x, y: pos3.y, z: pos3.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w, t: Date.now() });
+              // Update trail line
+              if (pts.length >= 2) {
+                const linePoints = pts.map(p => new THREE.Vector3(p.x, p.y + 0.05, p.z));
+                const lineGeo = new THREE.BufferGeometry().setFromPoints(linePoints);
+                if (robotPaths[m.name].line) {
+                  robotPaths[m.name].line.geometry.dispose();
+                  robotPaths[m.name].line.geometry = lineGeo;
+                } else {
+                  const lineMat = new THREE.LineBasicMaterial({ color: 0xff4444, linewidth: 2 });
+                  robotPaths[m.name].line = new THREE.Line(lineGeo, lineMat);
+                  if (gz.g3D) gz.g3D.add(robotPaths[m.name].line);
+                  else groupGazebo.add(robotPaths[m.name].line);
+                }
+              }
+            }
+          }
+
           // FPV camera tracking moved to render loop for smooth updates
         });
+      };
+
+      // --- Click-to-Place Robot (2-click: position + direction) ---
+      let clickPlaceEnabled = false;
+      let clickPlaceStep = 0; // 0=idle, 1=waiting position, 2=waiting direction
+      let clickPlacePos = null; // Three.js hit point
+      let clickPlaceMarker = null;
+      let clickPlaceArrow = null;
+
+      function cleanupClickPlace() {
+        if (clickPlaceMarker) { scene.remove(clickPlaceMarker); clickPlaceMarker = null; }
+        if (clickPlaceArrow) { scene.remove(clickPlaceArrow); clickPlaceArrow = null; }
+      }
+
+      const onClickPlaceToggle = (e) => {
+        clickPlaceEnabled = e.detail.enabled;
+        clickPlaceStep = clickPlaceEnabled ? 1 : 0;
+        clickPlacePos = null;
+        cleanupClickPlace();
+        renderer.domElement.style.cursor = clickPlaceEnabled ? "crosshair" : "";
+      };
+
+      renderer.domElement.addEventListener("click", (e) => {
+        if (!clickPlaceEnabled) return;
+
+        if (clickPlaceStep === 1) {
+          // Step 1: Set position — use ground plane (avoids hitting robot meshes)
+          const rect = renderer.domElement.getBoundingClientRect();
+          const mouse = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+          );
+          const raycaster = new THREE.Raycaster();
+          raycaster.setFromCamera(mouse, camera);
+          const hit = new THREE.Vector3();
+          const gp = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+          if (!raycaster.ray.intersectPlane(gp, hit)) return;
+          clickPlacePos = hit;
+
+          // Show position marker (green ring)
+          cleanupClickPlace();
+          const markerGeo = new THREE.RingGeometry(0.15, 0.2, 16);
+          markerGeo.rotateX(-Math.PI / 2);
+          clickPlaceMarker = new THREE.Mesh(markerGeo, new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide }));
+          clickPlaceMarker.position.copy(hit);
+          clickPlaceMarker.position.y += 0.02;
+          scene.add(clickPlaceMarker);
+
+          clickPlaceStep = 2;
+          console.log("[Gazebo] Click place position:", hit.x.toFixed(2), hit.z.toFixed(2));
+
+        } else if (clickPlaceStep === 2) {
+          // Step 2: Set direction — use ground plane (fast, consistent)
+          const rect = renderer.domElement.getBoundingClientRect();
+          const mouse = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+          );
+          const raycaster = new THREE.Raycaster();
+          raycaster.setFromCamera(mouse, camera);
+          const dirTarget = new THREE.Vector3();
+          groundPlane.constant = -(clickPlacePos.y || 0);
+          if (!raycaster.ray.intersectPlane(groundPlane, dirTarget)) return;
+
+          // Direction in Three.js: from clickPlacePos to dirTarget on XZ plane
+          const dx = dirTarget.x - clickPlacePos.x;
+          const dz = dirTarget.z - clickPlacePos.z;
+          // Gazebo coords: gx=three.x, gy=-three.z
+          // Gazebo yaw = atan2(gdy, gdx) = atan2(-dz, dx)
+          const yaw = Math.atan2(-dz, dx);
+
+          const gx = clickPlacePos.x;
+          const gy = -clickPlacePos.z;
+
+          console.log("[Gazebo] Click place at:", gx.toFixed(2), gy.toFixed(2), "yaw:", (yaw * 180 / Math.PI).toFixed(1), "deg");
+
+          // Dispatch with position + yaw (keep markers until robot appears)
+          window.dispatchEvent(new CustomEvent("robot-placed", {
+            detail: { x: gx, y: gy, z: clickPlacePos.y, yaw },
+          }));
+
+          // Keep markers visible, cleanup after robot loads
+          clickPlaceEnabled = false;
+          clickPlaceStep = 0;
+          renderer.domElement.style.cursor = "";
+          // Remove markers after delay (robot takes time to spawn)
+          setTimeout(cleanupClickPlace, 8000);
+        }
+      });
+
+      // Show direction preview on mouse move during step 2
+      // Use ground plane intersection (fast, no full raycast)
+      const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(clickPlacePos?.y || 0));
+      renderer.domElement.addEventListener("mousemove", (e) => {
+        if (!clickPlaceEnabled || clickPlaceStep !== 2 || !clickPlacePos) return;
+
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+        const target = new THREE.Vector3();
+        groundPlane.constant = -(clickPlacePos.y || 0);
+        const hit = raycaster.ray.intersectPlane(groundPlane, target);
+        if (!hit) return;
+
+        // Update arrow line (reuse geometry for speed)
+        const baseY = clickPlacePos.y + 0.05;
+        if (clickPlaceArrow) {
+          const positions = clickPlaceArrow.geometry.attributes.position;
+          positions.setXYZ(1, target.x, baseY, target.z);
+          positions.needsUpdate = true;
+        } else {
+          const from = new THREE.Vector3(clickPlacePos.x, baseY, clickPlacePos.z);
+          const to = new THREE.Vector3(target.x, baseY, target.z);
+          const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
+          clickPlaceArrow = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x00ff88 }));
+          scene.add(clickPlaceArrow);
+        }
+      });
+
+      // ESC to cancel
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && clickPlaceEnabled) {
+          clickPlaceEnabled = false;
+          clickPlaceStep = 0;
+          renderer.domElement.style.cursor = "";
+          cleanupClickPlace();
+          window.dispatchEvent(new CustomEvent("robot-click-place", { detail: { enabled: false } }));
+        }
+      });
+
+      // --- Robot Path Recording ---
+      const robotPaths = {}; // robotName → { recording, points: [{x,y,z,t}], line: THREE.Line }
+      let pathRecordingActive = false;
+
+      const onRobotPathControl = (e) => {
+        const { action, robotName } = e.detail;
+        if (action === "startRecord") {
+          pathRecordingActive = true;
+          if (!robotPaths[robotName]) {
+            robotPaths[robotName] = { recording: true, points: [], line: null };
+          } else {
+            robotPaths[robotName].recording = true;
+            robotPaths[robotName].points = [];
+            // Remove old line
+            if (robotPaths[robotName].line) {
+              const parent = robotPaths[robotName].line.parent;
+              if (parent) parent.remove(robotPaths[robotName].line);
+              robotPaths[robotName].line.geometry?.dispose();
+              robotPaths[robotName].line.material?.dispose();
+              robotPaths[robotName].line = null;
+            }
+          }
+          console.log("[Gazebo] Path recording started for:", robotName);
+        } else if (action === "stopRecord") {
+          if (robotPaths[robotName]) {
+            robotPaths[robotName].recording = false;
+          }
+          pathRecordingActive = false;
+          console.log("[Gazebo] Path recording stopped for:", robotName, "points:", robotPaths[robotName]?.points.length);
+        } else if (action === "clearPath") {
+          if (robotPaths[robotName]) {
+            if (robotPaths[robotName].line) {
+              const parent = robotPaths[robotName].line.parent;
+              if (parent) parent.remove(robotPaths[robotName].line);
+              robotPaths[robotName].line.geometry?.dispose();
+              robotPaths[robotName].line.material?.dispose();
+            }
+            delete robotPaths[robotName];
+          }
+        } else if (action === "replay") {
+          const path = robotPaths[robotName];
+          if (!path || path.points.length < 2) return;
+          // Send replay event back with path data
+          window.dispatchEvent(new CustomEvent("robot-path-replay", {
+            detail: { robotName, points: path.points },
+          }));
+        }
       };
 
       // --- Robot First-Person View ---
@@ -945,6 +1158,113 @@ export default function WebGPUViewer() {
               obj.visible = value;
             }
           });
+        } else if (type === "toggle-element") {
+          const { element, visible } = e.detail;
+          Object.entries(gazeboMeshes).forEach(([name, mesh]) => {
+            // For doors: only toggle actual door meshes, not wall_above_door
+            if (element === "door") {
+              if (name.includes("_door") && !name.includes("_wall_above_door")) {
+                mesh.visible = visible;
+              }
+            } else if (element === "window") {
+              if (name.includes("_window") && !name.includes("_wall_above_window") && !name.includes("_wall_below_window")) {
+                mesh.visible = visible;
+              }
+            } else if (name.includes(`_${element}`) || name.includes(`_${element}_`)) {
+              mesh.visible = visible;
+            }
+          });
+        } else if (type === "element-color") {
+          const { element, color } = e.detail;
+          const threeColor = new THREE.Color(color);
+          Object.entries(gazeboMeshes).forEach(([name, mesh]) => {
+            let match = false;
+            if (element === "wall_column") {
+              match = name.includes("_wall") || name.includes("_column");
+            } else {
+              match = name.includes(`_${element}`) || name.includes(`_${element}_`);
+            }
+            if (match) {
+              mesh.traverse((obj) => {
+                if (obj.isMesh && obj.material) {
+                  obj.material.color.copy(threeColor);
+                  obj.material.needsUpdate = true;
+                }
+              });
+            }
+          });
+        } else if (type === "building-opacity") {
+          // Apply opacity to building meshes only (skip robots)
+          Object.entries(gazeboMeshes).forEach(([name, mesh]) => {
+            if (name.includes("robot") || name.includes("simple_robot")) return;
+            mesh.traverse((obj) => {
+              if (obj.isMesh && obj.material) {
+                obj.material.transparent = true;
+                obj.material.opacity = value;
+                obj.material.needsUpdate = true;
+              }
+            });
+          });
+        } else if (type === "bg-color") {
+          const { color } = e.detail;
+          scene.background = new THREE.Color(color);
+          // Update ground plane color to match
+          scene.children.forEach((child) => {
+            if (child.isMesh && child.geometry?.type === "PlaneGeometry" && child.rotation.x === -Math.PI / 2) {
+              child.material.color.set(color);
+              child.material.needsUpdate = true;
+            }
+          });
+        } else if (type === "grid-color") {
+          const { color } = e.detail;
+          const gridHelper = scene.children.find((c) => c.isGridHelper || c.type === "GridHelper");
+          if (gridHelper) {
+            // GridHelper has array of materials [centerLine, grid]
+            if (Array.isArray(gridHelper.material)) {
+              gridHelper.material.forEach(m => { m.color.set(color); m.needsUpdate = true; });
+            } else if (gridHelper.material) {
+              gridHelper.material.color.set(color);
+              gridHelper.material.needsUpdate = true;
+            }
+          }
+        } else if (type === "grid-spacing") {
+          const spacing = e.detail.value;
+          const oldGrid = scene.children.find((c) => c.isGridHelper || c.type === "GridHelper");
+          if (oldGrid) {
+            const visible = oldGrid.visible;
+            // Preserve current color
+            let gridColor = 0x1a2a3a;
+            if (Array.isArray(oldGrid.material) && oldGrid.material[1]) {
+              gridColor = oldGrid.material[1].color.getHex();
+            }
+            scene.remove(oldGrid);
+            const size = 80;
+            const divisions = Math.round(size / spacing);
+            const newGrid = new THREE.GridHelper(size, divisions, gridColor, gridColor);
+            newGrid.visible = visible;
+            scene.add(newGrid);
+          }
+        } else if (type === "axis-color") {
+          const { color } = e.detail;
+          const axes = scene.children.find((c) => c.isAxesHelper || c.type === "AxesHelper");
+          if (axes) {
+            const c = new THREE.Color(color);
+            // Set all three axes to same color
+            const colors = axes.geometry.attributes.color;
+            for (let i = 0; i < colors.count; i++) {
+              colors.setXYZ(i, c.r, c.g, c.b);
+            }
+            colors.needsUpdate = true;
+          }
+        } else if (type === "shadow") {
+          renderer.shadowMap.enabled = value;
+          scene.traverse((obj) => {
+            if (obj.isMesh) {
+              obj.castShadow = value;
+              obj.receiveShadow = value;
+            }
+          });
+          renderer.shadowMap.needsUpdate = true;
         } else if (type === "resetCamera") {
           controls.setLookAt(8, 8, 8, 0, 0, 0, true);
         } else if (type === "topView") {
@@ -1019,6 +1339,153 @@ export default function WebGPUViewer() {
       window.addEventListener("gazebo-robot-model", onGazeboRobotModel);
       window.addEventListener("gazebo-viz", onGazeboViz);
       window.addEventListener("gazebo-screenshot", onGazeboScreenshot);
+      window.addEventListener("robot-path-control", onRobotPathControl);
+      window.addEventListener("robot-click-place", onClickPlaceToggle);
+      window.addEventListener("gazebo-minimap", (e) => setMinimapVisible(e.detail.visible));
+
+      // ── Minimap ──
+      const minimapData = { walls: [], spaces: [], bounds: { minX: -4, maxX: 4, minY: -2, maxY: 2 } };
+
+      function updateMinimapData() {
+        // Extract wall and space polygons from the gazebo scene for 2D minimap
+        minimapData.walls = [];
+        minimapData.spaces = [];
+        Object.entries(gazeboMeshes).forEach(([name, mesh]) => {
+          if (!name.includes("building/")) return;
+          const isWall = name.includes("wall") && !name.includes("above");
+          const isSpace = name.includes("space");
+          const isDoor = name.includes("door");
+          const isWindow = name.includes("window");
+          if (!isWall && !isSpace && !isDoor && !isWindow) return;
+
+          // Get polyline points from the mesh geometry
+          mesh.traverse((child) => {
+            if (!child.isMesh || !child.geometry) return;
+            const pos = child.geometry.attributes?.position;
+            if (!pos) return;
+            // Extract unique XZ points (top face)
+            const points = [];
+            const seen = new Set();
+            for (let i = 0; i < pos.count; i++) {
+              const x = pos.getX(i);
+              const z = pos.getZ(i);
+              const key = `${x.toFixed(3)},${z.toFixed(3)}`;
+              if (!seen.has(key)) { seen.add(key); points.push([x, z]); }
+            }
+            if (points.length >= 3) {
+              const worldPos = child.getWorldPosition(new THREE.Vector3());
+              const entry = {
+                points: points.map(([px, pz]) => [px + worldPos.x, pz + worldPos.z]),
+                type: isWall ? "wall" : isDoor ? "door" : isWindow ? "window" : "space",
+              };
+              if (isSpace) minimapData.spaces.push(entry);
+              else minimapData.walls.push(entry);
+            }
+          });
+        });
+
+        // Compute bounds
+        let bMinX = Infinity, bMaxX = -Infinity, bMinZ = Infinity, bMaxZ = -Infinity;
+        [...minimapData.walls, ...minimapData.spaces].forEach((entry) => {
+          entry.points.forEach(([x, z]) => {
+            bMinX = Math.min(bMinX, x); bMaxX = Math.max(bMaxX, x);
+            bMinZ = Math.min(bMinZ, z); bMaxZ = Math.max(bMaxZ, z);
+          });
+        });
+        if (isFinite(bMinX)) {
+          const pad = 0.5;
+          minimapData.bounds = { minX: bMinX - pad, maxX: bMaxX + pad, minY: bMinZ - pad, maxY: bMaxZ + pad };
+        }
+      }
+
+      function drawMinimap() {
+        const canvas = minimapRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width;
+        const H = canvas.height;
+        const { minX, maxX, minY, maxY } = minimapData.bounds;
+        const scaleX = W / (maxX - minX);
+        const scaleY = H / (maxY - minY);
+        const sc = Math.min(scaleX, scaleY) * 0.9;
+        const offX = W / 2;
+        const offY = H / 2;
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+
+        const toScreen = (x, z) => [
+          offX + (x - cx) * sc,
+          offY + (z - cy) * sc,
+        ];
+
+        ctx.clearRect(0, 0, W, H);
+
+        // Background
+        ctx.fillStyle = "rgba(255, 245, 157, 0.9)";
+        ctx.fillRect(0, 0, W, H);
+
+        // Draw spaces
+        minimapData.spaces.forEach((s) => {
+          ctx.beginPath();
+          const [sx, sy] = toScreen(s.points[0][0], s.points[0][1]);
+          ctx.moveTo(sx, sy);
+          s.points.forEach(([x, z], i) => { if (i > 0) { const [px, py] = toScreen(x, z); ctx.lineTo(px, py); } });
+          ctx.closePath();
+          ctx.fillStyle = "rgba(204, 204, 170, 0.15)";
+          ctx.fill();
+        });
+
+        // Draw walls
+        minimapData.walls.forEach((w) => {
+          ctx.beginPath();
+          const [sx, sy] = toScreen(w.points[0][0], w.points[0][1]);
+          ctx.moveTo(sx, sy);
+          w.points.forEach(([x, z], i) => { if (i > 0) { const [px, py] = toScreen(x, z); ctx.lineTo(px, py); } });
+          ctx.closePath();
+          if (w.type === "door") {
+            ctx.fillStyle = "rgba(255, 102, 68, 0.4)";
+            ctx.strokeStyle = "rgba(255, 102, 68, 0.6)";
+          } else if (w.type === "window") {
+            ctx.fillStyle = "rgba(68, 170, 255, 0.4)";
+            ctx.strokeStyle = "rgba(68, 170, 255, 0.6)";
+          } else {
+            ctx.fillStyle = "rgba(136, 153, 170, 0.5)";
+            ctx.strokeStyle = "rgba(180, 190, 200, 0.7)";
+          }
+          ctx.lineWidth = 1;
+          ctx.fill();
+          ctx.stroke();
+        });
+
+        // Draw robots
+        Object.entries(gazeboMeshes).forEach(([name, mesh]) => {
+          if (!name.includes("robot")) return;
+          const [rx, ry] = toScreen(mesh.position.x, mesh.position.z);
+          // Robot dot
+          ctx.beginPath();
+          ctx.arc(rx, ry, 5, 0, Math.PI * 2);
+          ctx.fillStyle = "#00d4ff";
+          ctx.fill();
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          // Direction indicator
+          const forward = new THREE.Vector3(1, 0, 0);
+          forward.applyQuaternion(mesh.quaternion);
+          const [fx, fy] = toScreen(mesh.position.x + forward.x * 0.5, mesh.position.z + forward.z * 0.5);
+          ctx.beginPath();
+          ctx.moveTo(rx, ry);
+          ctx.lineTo(fx, fy);
+          ctx.strokeStyle = "#00d4ff";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        });
+
+        // Border
+        ctx.strokeStyle = "rgba(255,255,255,0.15)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0, 0, W, H);
+      }
 
       // Default camera position
       const extent = isFinite(minX) ? Math.max((maxX - minX), (maxY - minY)) * SCALE : 8;
@@ -1048,6 +1515,9 @@ export default function WebGPUViewer() {
           controls.update(clock.getDelta());
         }
 
+        // Draw minimap
+        drawMinimap();
+
         try {
           renderer.render(scene, camera);
         } catch (e) {
@@ -1066,7 +1536,7 @@ export default function WebGPUViewer() {
       };
       window.addEventListener("resize", onResize);
 
-      viewerRef.current = { renderer, scene, camera, controls, onResize, onToggle2D, onToggle3D, onSelectFloor, onWallMode, onGazeboScene, onGazeboPoses, onGazeboSpawn, onGazeboRobotModel, onRobotFPV, onGazeboViz, onGazeboScreenshot };
+      viewerRef.current = { renderer, scene, camera, controls, onResize, onToggle2D, onToggle3D, onSelectFloor, onWallMode, onGazeboScene, onGazeboPoses, onGazeboSpawn, onGazeboRobotModel, onRobotFPV, onRobotPathControl, onGazeboViz, onGazeboScreenshot };
     }
 
     initWebGPU();
@@ -1074,7 +1544,7 @@ export default function WebGPUViewer() {
     return () => {
       disposed = true;
       if (viewerRef.current) {
-        const { renderer, onResize, onToggle2D, onToggle3D, onSelectFloor, onWallMode, onGazeboScene, onGazeboPoses, onGazeboSpawn, onGazeboRobotModel, onRobotFPV, onGazeboViz, onGazeboScreenshot } = viewerRef.current;
+        const { renderer, onResize, onToggle2D, onToggle3D, onSelectFloor, onWallMode, onGazeboScene, onGazeboPoses, onGazeboSpawn, onGazeboRobotModel, onRobotFPV, onRobotPathControl, onGazeboViz, onGazeboScreenshot } = viewerRef.current;
         window.removeEventListener("resize", onResize);
         window.removeEventListener("toggle-2d", onToggle2D);
         window.removeEventListener("toggle-3d", onToggle3D);
@@ -1087,6 +1557,8 @@ export default function WebGPUViewer() {
         window.removeEventListener("gazebo-robot-model", onGazeboRobotModel);
         window.removeEventListener("gazebo-viz", onGazeboViz);
         window.removeEventListener("gazebo-screenshot", onGazeboScreenshot);
+        window.removeEventListener("robot-path-control", onRobotPathControl);
+        window.removeEventListener("robot-click-place", onClickPlaceToggle);
         if (mount.contains(renderer.domElement)) {
           mount.removeChild(renderer.domElement);
         }
@@ -1119,11 +1591,68 @@ export default function WebGPUViewer() {
         WebGPU RENDERER
       </div>
 
+      {/* Minimap popup - draggable */}
+      {minimapVisible && (
+        <div
+          style={{
+            position: "fixed",
+            left: mmPos.x,
+            top: mmPos.y,
+            zIndex: 500,
+            background: "rgba(11, 14, 20, 0.9)",
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 8,
+            boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              padding: "4px 8px",
+              fontSize: 10,
+              color: "var(--text-dim)",
+              background: "rgba(255,255,255,0.05)",
+              cursor: "move",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              userSelect: "none",
+            }}
+            onMouseDown={(e) => {
+              mmDragRef.current = { dragging: true, ox: e.clientX - mmPos.x, oy: e.clientY - mmPos.y };
+              const onMove = (ev) => {
+                if (mmDragRef.current.dragging) {
+                  setMmPos({ x: ev.clientX - mmDragRef.current.ox, y: ev.clientY - mmDragRef.current.oy });
+                }
+              };
+              const onUp = () => {
+                mmDragRef.current.dragging = false;
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+              };
+              document.addEventListener("mousemove", onMove);
+              document.addEventListener("mouseup", onUp);
+            }}
+          >
+            <span>Minimap</span>
+            <button
+              onClick={() => {
+                setMinimapVisible(false);
+                window.dispatchEvent(new CustomEvent("gazebo-minimap", { detail: { visible: false } }));
+              }}
+              style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: 12, padding: 0 }}
+            >✕</button>
+          </div>
+          <canvas ref={minimapRef} width={220} height={220} style={{ display: "block" }} />
+        </div>
+      )}
+      {!minimapVisible && <canvas ref={minimapRef} width={220} height={220} style={{ display: "none" }} />}
+
       {/* Controls hint */}
       <div
         style={{
           position: "fixed",
-          bottom: 16,
+          bottom: 220,
           right: 16,
           fontSize: 9,
           color: THEME.textDim + "88",

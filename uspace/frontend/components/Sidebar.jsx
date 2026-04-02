@@ -12,6 +12,7 @@ function getWsUrl() {
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 10000];
 
 const TABS = [
+  { id: "settings", label: "Settings", icon: "⚙" },
   { id: "building", label: "Building", icon: "⌂" },
   { id: "robot", label: "Robot", icon: "⊞" },
   { id: "sim", label: "Sim", icon: "▶" },
@@ -35,7 +36,7 @@ const smallInputStyle = {
 };
 
 export default function Sidebar() {
-  const [activeTab, setActiveTab] = useState("building");
+  const [activeTab, setActiveTab] = useState("settings");
   const [collapsed, setCollapsed] = useState(false);
 
   // Building
@@ -79,10 +80,21 @@ export default function Sidebar() {
   const [robotY, setRobotY] = useState(0);
   const [robotYaw, setRobotYaw] = useState(0);
   const [driveTopic, setDriveTopic] = useState("/model/simple_robot/cmd_vel");
-  const [robotAppearance, setRobotAppearance] = useState("curiosity_rover");
+  const [robotAppearance] = useState("curiosity_rover");
+  const [spawnedRobots, setSpawnedRobots] = useState([]); // [{name, topic, x, y, yaw}]
+  const spawnedRobotsRef = useRef([]);
+  const [activeRobotName, setActiveRobotName] = useState("");
+  const [clickPlaceMode, setClickPlaceMode] = useState(false);
 
   // Robot FPV
   const [fpvActive, setFpvActive] = useState(false);
+  // Path recording
+  const [pathRecording, setPathRecording] = useState(false);
+  const [pathExists, setPathExists] = useState(false);
+  const [pathReplaying, setPathReplaying] = useState(false);
+
+  // Minimap
+  const [minimapOpen, setMinimapOpen] = useState(false);
   const fpvRobotRef = useRef(null);
 
   // Keyboard drive
@@ -184,6 +196,63 @@ export default function Sidebar() {
     };
   }, [connect]);
 
+  // ── Click-to-place listener ──
+  useEffect(() => {
+    const onPlaced = (e) => {
+      const { x, y, yaw } = e.detail;
+      setClickPlaceMode(false);
+      const name = `${selectedRobot}_${Date.now()}`;
+      const newTopic = `/model/${name}/cmd_vel`;
+      const robotYaw = yaw || 0;
+      fpvRobotRef.current = name;
+      sendCommand("spawn_robot", { params: { model: selectedRobot, name, x, y, z: 0.15, yaw: robotYaw, existingRobots: spawnedRobotsRef.current } });
+      window.dispatchEvent(new CustomEvent("gazebo-robot-model", {
+        detail: { namePattern: name, model: robotAppearance },
+      }));
+      setSpawnedRobots((prev) => {
+        const updated = [...prev, { name, topic: newTopic, x, y, yaw: robotYaw }];
+        spawnedRobotsRef.current = updated;
+        return updated;
+      });
+      setActiveRobotName(name);
+      setDriveTopic(newTopic);
+      keyDriveRef.current.topic = newTopic;
+      if (!simActive) activateSimView();
+    };
+    window.addEventListener("robot-placed", onPlaced);
+    return () => window.removeEventListener("robot-placed", onPlaced);
+  }, [selectedRobot, robotAppearance, sendCommand, simActive, activateSimView]);
+
+  // ── Path Replay listener ──
+  useEffect(() => {
+    const onReplay = (e) => {
+      const { robotName, points } = e.detail;
+      if (!points || points.length < 2) return;
+      setPathReplaying(true);
+      let idx = 0;
+      const replayInterval = setInterval(() => {
+        if (idx >= points.length) {
+          clearInterval(replayInterval);
+          setPathReplaying(false);
+          // Stop robot
+          sendCommand("drive_robot", { topic: `/model/${robotName}/cmd_vel`, linear: 0, angular: 0 });
+          return;
+        }
+        const pt = points[idx];
+        // Move robot to recorded position with orientation
+        // Three.js (x,y,z,qx,qy,qz,qw) → Gazebo (x,-z,y) and quaternion (qx,-qz,qy,qw)
+        sendCommand("move_entity", {
+          name: robotName,
+          x: pt.x, y: -pt.z, z: pt.y,
+          qx: pt.qx || 0, qy: -(pt.qz || 0), qz: pt.qy || 0, qw: pt.qw || 1,
+        });
+        idx++;
+      }, 100); // replay at ~10Hz
+    };
+    window.addEventListener("robot-path-replay", onReplay);
+    return () => window.removeEventListener("robot-path-replay", onReplay);
+  }, [sendCommand]);
+
   // ── Keyboard Drive ──
   const startKeyDrive = useCallback(() => {
     if (keyDriveRef.current.active) return;
@@ -208,8 +277,9 @@ export default function Sidebar() {
       if (e.key === "Escape") stopKeyDrive();
     };
 
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
+    // Use document level to ensure capture regardless of focus
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
     keyDriveRef.current._onKeyDown = onKeyDown;
     keyDriveRef.current._onKeyUp = onKeyUp;
 
@@ -238,8 +308,8 @@ export default function Sidebar() {
     setKeyDriveActive(false);
     clearInterval(keyDriveRef.current.interval);
     if (keyDriveRef.current._onKeyDown) {
-      window.removeEventListener("keydown", keyDriveRef.current._onKeyDown, true);
-      window.removeEventListener("keyup", keyDriveRef.current._onKeyUp, true);
+      document.removeEventListener("keydown", keyDriveRef.current._onKeyDown);
+      document.removeEventListener("keyup", keyDriveRef.current._onKeyUp);
     }
     // Send stop command
     sendCommand("drive_robot", { topic: keyDriveRef.current.topic, linear: 0, angular: 0 });
@@ -640,6 +710,54 @@ export default function Sidebar() {
           Half Wall
         </button>
       </div>
+
+      <div style={labelStyle}>Show / Hide</div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-dim)", cursor: "pointer", marginBottom: 3 }}>
+        <input type="checkbox" defaultChecked onChange={(e) => {
+          window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type: "toggle-element", element: "door", visible: e.target.checked } }));
+        }} />
+        Doors
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-dim)", cursor: "pointer", marginBottom: 4 }}>
+        <input type="checkbox" defaultChecked onChange={(e) => {
+          window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type: "toggle-element", element: "window", visible: e.target.checked } }));
+        }} />
+        Windows
+      </label>
+
+      <div style={labelStyle}>Element Colors</div>
+      {[
+        { key: "space", label: "Floor", defaultColor: "#ccccaa" },
+        { key: "wall_column", label: "Wall / Column", defaultColor: "#8899aa" },
+        { key: "door", label: "Door", defaultColor: "#ff6644" },
+        { key: "window", label: "Window", defaultColor: "#44aaff" },
+      ].map(({ key, label, defaultColor }) => (
+        <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+          <input type="color" defaultValue={defaultColor}
+            style={{ width: 22, height: 18, border: "none", padding: 0, cursor: "pointer", background: "transparent" }}
+            onChange={(e) => {
+              window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type: "element-color", element: key, color: e.target.value } }));
+            }}
+          />
+          <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{label}</span>
+        </div>
+      ))}
+
+      <div style={labelStyle}>Building Opacity</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input
+          type="range" min="0" max="100" defaultValue="100"
+          style={{ flex: 1, accentColor: "var(--accent)" }}
+          onChange={(e) => {
+            const val = parseInt(e.target.value);
+            const opacity = val / 100;
+            window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type: "building-opacity", value: opacity } }));
+            const label = document.getElementById("opacityLabel");
+            if (label) label.textContent = val + "%";
+          }}
+        />
+        <span id="opacityLabel" style={{ fontSize: 10, color: "var(--text-dim)", width: 30, textAlign: "right" }}>100%</span>
+      </div>
     </div>
   );
 
@@ -649,17 +767,21 @@ export default function Sidebar() {
       activateSimView();
     }
     const name = `${selectedRobot}_${Date.now()}`;
-    fpvRobotRef.current = name; // track latest robot for FPV
-    const params = { model: selectedRobot, name, x: robotX, y: robotY, z: 0.15, yaw: robotYaw };
+    const newTopic = `/model/${name}/cmd_vel`;
+    fpvRobotRef.current = name;
+    const params = { model: selectedRobot, name, x: robotX, y: robotY, z: 0.15, yaw: robotYaw, existingRobots: spawnedRobotsRef.current };
     sendCommand("spawn_robot", { params });
-    // Tell viewer which 3D model to use for this robot
     window.dispatchEvent(new CustomEvent("gazebo-robot-model", {
       detail: { namePattern: name, model: robotAppearance },
     }));
-    // Update drive topic to match the robot's diff-drive plugin topic
-    const newTopic = `/model/${name}/cmd_vel`;
+    setSpawnedRobots((prev) => {
+      const updated = [...prev, { name, topic: newTopic, x: robotX, y: robotY, yaw: robotYaw }];
+      spawnedRobotsRef.current = updated;
+      return updated;
+    });
+    setActiveRobotName(name);
     setDriveTopic(newTopic);
-    keyDriveRef.current.topic = newTopic; // update ref for active keyboard drive
+    keyDriveRef.current.topic = newTopic;
   };
 
   const renderRobot = () => (
@@ -682,7 +804,25 @@ export default function Sidebar() {
         )}
       </select>
 
-      <div style={labelStyle}>Spawn Position</div>
+      <div style={labelStyle}>Spawn</div>
+      <button
+        onClick={() => {
+          const next = !clickPlaceMode;
+          setClickPlaceMode(next);
+          window.dispatchEvent(new CustomEvent("robot-click-place", { detail: { enabled: next } }));
+        }}
+        style={{
+          ...btnFullStyle(clickPlaceMode),
+          marginBottom: 6,
+          background: clickPlaceMode ? "rgba(52, 211, 153, 0.2)" : undefined,
+          borderColor: clickPlaceMode ? "rgba(52, 211, 153, 0.5)" : undefined,
+          color: clickPlaceMode ? "var(--green)" : undefined,
+        }}
+      >
+        {clickPlaceMode ? "🎯 Click on building to place — ESC to cancel" : "🎯 Click to Place Robot"}
+      </button>
+
+      <div style={labelStyle}>Manual Position</div>
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <div style={{ flex: 1 }}>
           <div style={subLabelStyle}>X (m)</div>
@@ -702,10 +842,40 @@ export default function Sidebar() {
         Spawn Robot
       </button>
 
+      {/* Active robot selector */}
+      {spawnedRobots.length > 0 && (
+        <>
+          <div style={labelStyle}>Active Robot</div>
+          <select
+            value={activeRobotName}
+            onChange={(e) => {
+              const r = spawnedRobots.find(r => r.name === e.target.value);
+              if (r) {
+                setActiveRobotName(r.name);
+                setDriveTopic(r.topic);
+                keyDriveRef.current.topic = r.topic;
+                fpvRobotRef.current = r.name;
+                // Update FPV if active
+                if (fpvActive) {
+                  window.dispatchEvent(new CustomEvent("robot-fpv", {
+                    detail: { enabled: true, robotName: r.name },
+                  }));
+                }
+              }
+            }}
+            style={inputStyle}
+          >
+            {spawnedRobots.map((r, i) => (
+              <option key={r.name} value={r.name}>Robot {i + 1} — {r.name.split("_").slice(-1)[0]}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 9, color: "var(--text-dim)", marginTop: 2, marginBottom: 6 }}>
+            {spawnedRobots.length} robot(s) spawned
+          </div>
+        </>
+      )}
+
       <div style={labelStyle}>Drive Control</div>
-      <div style={{ fontSize: 10, color: "var(--text-dim)", marginBottom: 6 }}>
-        Topic: {driveTopic}
-      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
         <div />
         <button onClick={() => sendCommand("drive_robot", { topic: driveTopic, linear: 0.5, angular: 0 })} style={btnStyle()}>
@@ -780,10 +950,136 @@ export default function Sidebar() {
           Camera follows robot — use WASD to drive
         </div>
       )}
+
+      <div style={labelStyle}>Path Recording</div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+        <button
+          onClick={() => {
+            if (pathRecording) {
+              // Stop recording
+              window.dispatchEvent(new CustomEvent("robot-path-control", {
+                detail: { action: "stopRecord", robotName: activeRobotName || fpvRobotRef.current },
+              }));
+              setPathRecording(false);
+              setPathExists(true);
+            } else {
+              // Start recording
+              window.dispatchEvent(new CustomEvent("robot-path-control", {
+                detail: { action: "startRecord", robotName: activeRobotName || fpvRobotRef.current },
+              }));
+              setPathRecording(true);
+              setPathExists(false);
+            }
+          }}
+          style={{
+            ...btnFullStyle(pathRecording),
+            flex: 1,
+            background: pathRecording ? "rgba(239, 68, 68, 0.2)" : undefined,
+            borderColor: pathRecording ? "rgba(239, 68, 68, 0.5)" : undefined,
+            color: pathRecording ? "var(--red)" : undefined,
+          }}
+        >
+          {pathRecording ? "⏹ Stop Recording" : "⏺ Record Path"}
+        </button>
+      </div>
+      {pathRecording && (
+        <div style={{ fontSize: 9, color: "var(--red)", textAlign: "center", marginBottom: 4 }}>
+          Recording... Drive the robot to trace a path
+        </div>
+      )}
+      {pathExists && !pathRecording && (
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            onClick={() => {
+              const name = activeRobotName || fpvRobotRef.current;
+              window.dispatchEvent(new CustomEvent("robot-path-control", {
+                detail: { action: "replay", robotName: name },
+              }));
+              setPathReplaying(true);
+            }}
+            style={{ ...btnStyle(pathReplaying), flex: 1 }}
+          >
+            ▶ Replay Path
+          </button>
+          <button
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent("robot-path-control", {
+                detail: { action: "clearPath", robotName: activeRobotName || fpvRobotRef.current },
+              }));
+              setPathExists(false);
+            }}
+            style={{ ...btnStyle(), flex: 1, color: "var(--red)" }}
+          >
+            ✕ Clear
+          </button>
+        </div>
+      )}
+
+      <div style={labelStyle}>Minimap</div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-dim)", cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={minimapOpen}
+          onChange={(e) => {
+            setMinimapOpen(e.target.checked);
+            window.dispatchEvent(new CustomEvent("gazebo-minimap", { detail: { visible: e.target.checked } }));
+          }}
+        />
+        Show Minimap
+      </label>
+    </div>
+  );
+
+  const renderSettings = () => (
+    <div>
+      <div style={labelStyle}>Background Color</div>
+      <input type="color" defaultValue="#0b0e14"
+        style={{ width: "100%", height: 28, border: "1px solid var(--panel-border)", borderRadius: 4, cursor: "pointer", background: "transparent" }}
+        onChange={(e) => {
+          window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type: "bg-color", color: e.target.value } }));
+        }}
+      />
+
+      <div style={labelStyle}>Grid</div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-dim)", cursor: "pointer", marginBottom: 6 }}>
+        <input type="checkbox" defaultChecked onChange={(e) => {
+          window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type: "grid", value: e.target.checked } }));
+        }} />
+        Show Grid
+      </label>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <span style={{ fontSize: 10, color: "var(--text-dim)", whiteSpace: "nowrap" }}>Color</span>
+        <input type="color" defaultValue="#1a2a3a"
+          style={{ width: 28, height: 18, border: "none", padding: 0, cursor: "pointer", background: "transparent" }}
+          onChange={(e) => {
+            window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type: "grid-color", color: e.target.value } }));
+          }}
+        />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 10, color: "var(--text-dim)", whiteSpace: "nowrap" }}>Spacing (m)</span>
+        <input type="number" defaultValue="0.5" min="0.1" max="10" step="0.1"
+          style={{ ...inputStyle, width: 70 }}
+          onChange={(e) => {
+            const val = parseFloat(e.target.value);
+            if (val > 0) window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type: "grid-spacing", value: val } }));
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+      </div>
+
+      <div style={labelStyle}>Rendering</div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--text-dim)", cursor: "pointer" }}>
+        <input type="checkbox" defaultChecked onChange={(e) => {
+          window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type: "shadow", value: e.target.checked } }));
+        }} />
+        Shadows
+      </label>
     </div>
   );
 
   const tabRenderers = {
+    settings: renderSettings,
     building: renderBuilding,
     robot: renderRobot,
     sim: renderSim,

@@ -12,6 +12,7 @@ import sys
 import time
 import os
 import signal
+import math
 import re
 import xml.etree.ElementTree as ET
 
@@ -394,6 +395,12 @@ async def start_gazebo(sdf_path, load_id=None):
     latest_poses = None
     latest_stats = None
 
+    # Clean up previous current_world.sdf if loading a fresh world (not current_world itself)
+    current_world_path = f"{SDF_DIR}/current_world.sdf"
+    if not sdf_path.endswith("current_world.sdf") and os.path.isfile(current_world_path):
+        os.remove(current_world_path)
+        print(f"[bridge] Removed old current_world.sdf", flush=True)
+
     print(f"[bridge] Starting Gazebo with: {sdf_path}", flush=True)
 
     gz_proc = await asyncio.create_subprocess_exec(
@@ -632,8 +639,8 @@ async def handle_command(data, websocket=None):
                 tmp_path = f"/tmp/spawn_{name}.sdf"
                 with open(tmp_path, "w") as f:
                     f.write(sdf_content)
-                # Inject robot into running world by rewriting world SDF
-                # Read current world SDF, append robot, restart Gazebo
+                # Build world SDF from original building + all existing robots + new robot
+                # Always start from original building.sdf (not current_world)
                 world_sdf_path = None
                 for wf in [f"{SDF_DIR}/building.sdf", f"{SDF_DIR}/test_world.sdf"]:
                     if os.path.isfile(wf):
@@ -644,23 +651,41 @@ async def handle_command(data, websocket=None):
                     with open(world_sdf_path, "r") as wf:
                         world_sdf = wf.read()
 
-                    # Read robot SDF and extract model content (without <?xml> and <sdf> wrapper)
+                    # Add existing robots from browser's spawned list
+                    existing_robots = params.get("existingRobots", [])
+                    for er in existing_robots:
+                        er_name = er.get("name", "")
+                        er_x = er.get("x", 0)
+                        er_y = er.get("y", 0)
+                        er_yaw = er.get("yaw", 0)
+                        # Build robot SDF for existing robot
+                        er_model_path = f"/home/jchoi/gazebo/models/{model}.sdf"
+                        if os.path.isfile(er_model_path):
+                            with open(er_model_path, "r") as ef:
+                                er_sdf = ef.read()
+                            er_sdf = re.sub(r'<model name="[^"]*"', f'<model name="{er_name}"', er_sdf, count=1)
+                            er_sdf = re.sub(r'<pose>[^<]*</pose>', f'<pose>{er_x} {er_y} 0.15 0 0 {er_yaw}</pose>', er_sdf, count=1)
+                            er_sdf = er_sdf.replace("/robot/cmd_vel", f"/model/{er_name}/cmd_vel")
+                            er_start = er_sdf.find("<model")
+                            er_end = er_sdf.rfind("</model>") + len("</model>")
+                            if er_start >= 0 and er_end > er_start:
+                                er_model = er_sdf[er_start:er_end]
+                                world_sdf = world_sdf.replace("</world>", f"\n    {er_model}\n  </world>")
+                                print(f"[bridge] Added existing robot {er_name} at ({er_x:.2f}, {er_y:.2f})", flush=True)
+
+                    # Add new robot
                     with open(tmp_path, "r") as rf:
                         robot_sdf = rf.read()
-                    # Extract just the <model>...</model> part
                     model_start = robot_sdf.find("<model")
                     model_end = robot_sdf.rfind("</model>") + len("</model>")
                     if model_start >= 0 and model_end > model_start:
                         robot_model = robot_sdf[model_start:model_end]
-                        # Insert before </world>
                         new_world = world_sdf.replace("</world>", f"\n    {robot_model}\n  </world>")
-                        # Save as new world file
                         robot_world_path = f"{SDF_DIR}/current_world.sdf"
                         with open(robot_world_path, "w") as wf:
                             wf.write(new_world)
-                        # Restart Gazebo with new world
                         await start_gazebo(robot_world_path)
-                        print(f"[bridge] Spawned robot {name} by restarting world with robot included", flush=True)
+                        print(f"[bridge] Spawned robot {name} with {len(existing_robots)} existing robots", flush=True)
                     else:
                         print(f"[bridge] Could not extract robot model from SDF", flush=True)
                 else:
@@ -695,18 +720,25 @@ async def handle_command(data, websocket=None):
                 f'linear {{x: {linear}}} angular {{z: {angular}}}',
             ])
         elif action == "move_entity":
-            # Teleport entity to new pose
+            # Teleport entity to new pose with optional orientation
             name = data.get("name", "")
             px = data.get("x", 0)
             py = data.get("y", 0)
             pz = data.get("z", 0)
+            qx = data.get("qx")
+            qy = data.get("qy")
+            qz = data.get("qz")
+            qw = data.get("qw")
             if name:
+                req = f'name: "{name}" position {{x: {px} y: {py} z: {pz}}}'
+                if qw is not None:
+                    req += f' orientation {{x: {qx} y: {qy} z: {qz} w: {qw}}}'
                 subprocess.Popen([
                     "gz", "service", "-s", f"/world/{WORLD_NAME}/set_pose",
                     "--reqtype", "gz.msgs.Pose",
                     "--reptype", "gz.msgs.Boolean",
                     "--timeout", "1000",
-                    "--req", f'name: "{name}" position {{x: {px} y: {py} z: {pz}}}',
+                    "--req", req,
                 ])
         elif action == "apply_force":
             # Apply force/wrench to entity link (repeated for visible effect)
