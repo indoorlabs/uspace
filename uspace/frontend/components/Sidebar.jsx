@@ -79,6 +79,15 @@ export default function Sidebar() {
   const [robotY, setRobotY] = useState(0);
   const [robotYaw, setRobotYaw] = useState(0);
   const [driveTopic, setDriveTopic] = useState("/model/simple_robot/cmd_vel");
+  const [robotAppearance, setRobotAppearance] = useState("curiosity_rover");
+
+  // Robot FPV
+  const [fpvActive, setFpvActive] = useState(false);
+  const fpvRobotRef = useRef(null);
+
+  // Keyboard drive
+  const [keyDriveActive, setKeyDriveActive] = useState(false);
+  const keyDriveRef = useRef({ active: false, keys: {}, interval: null, topic: "" });
 
   // Export
   const [recording, setRecording] = useState(false);
@@ -174,6 +183,67 @@ export default function Sidebar() {
       if (wsRef.current) wsRef.current.close();
     };
   }, [connect]);
+
+  // ── Keyboard Drive ──
+  const startKeyDrive = useCallback(() => {
+    if (keyDriveRef.current.active) return;
+    keyDriveRef.current.active = true;
+    keyDriveRef.current.keys = {};
+    keyDriveRef.current.topic = driveTopic;
+    setKeyDriveActive(true);
+
+    const onKeyDown = (e) => {
+      const k = e.key.toLowerCase();
+      if (["w","a","s","d","q","e"].includes(k)) {
+        e.preventDefault();
+        keyDriveRef.current.keys[k] = true;
+      }
+    };
+    const onKeyUp = (e) => {
+      const k = e.key.toLowerCase();
+      if (["w","a","s","d","q","e"].includes(k)) {
+        e.preventDefault();
+        delete keyDriveRef.current.keys[k];
+      }
+      if (e.key === "Escape") stopKeyDrive();
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    keyDriveRef.current._onKeyDown = onKeyDown;
+    keyDriveRef.current._onKeyUp = onKeyUp;
+
+    // Send commands at 10Hz based on pressed keys
+    keyDriveRef.current.interval = setInterval(() => {
+      const keys = keyDriveRef.current.keys;
+      let linear = 0, angular = 0;
+      if (keys.w) linear += 0.5;
+      if (keys.s) linear -= 0.5;
+      if (keys.a) angular += 0.8;
+      if (keys.d) angular -= 0.8;
+      if (keys.q) { linear += 0.3; angular += 0.4; }
+      if (keys.e) { linear += 0.3; angular -= 0.4; }
+
+      // Always use latest topic from ref (updated when robot spawns)
+      const topic = keyDriveRef.current.topic;
+      if (topic) {
+        sendCommand("drive_robot", { topic, linear, angular });
+      }
+    }, 100);
+  }, [driveTopic, sendCommand]);
+
+  const stopKeyDrive = useCallback(() => {
+    if (!keyDriveRef.current.active) return;
+    keyDriveRef.current.active = false;
+    setKeyDriveActive(false);
+    clearInterval(keyDriveRef.current.interval);
+    if (keyDriveRef.current._onKeyDown) {
+      window.removeEventListener("keydown", keyDriveRef.current._onKeyDown, true);
+      window.removeEventListener("keyup", keyDriveRef.current._onKeyUp, true);
+    }
+    // Send stop command
+    sendCommand("drive_robot", { topic: keyDriveRef.current.topic, linear: 0, angular: 0 });
+  }, [sendCommand]);
 
   const dispatchViz = (type, value) => {
     window.dispatchEvent(new CustomEvent("gazebo-viz", { detail: { type, value } }));
@@ -579,10 +649,17 @@ export default function Sidebar() {
       activateSimView();
     }
     const name = `${selectedRobot}_${Date.now()}`;
+    fpvRobotRef.current = name; // track latest robot for FPV
     const params = { model: selectedRobot, name, x: robotX, y: robotY, z: 0.15, yaw: robotYaw };
     sendCommand("spawn_robot", { params });
+    // Tell viewer which 3D model to use for this robot
+    window.dispatchEvent(new CustomEvent("gazebo-robot-model", {
+      detail: { namePattern: name, model: robotAppearance },
+    }));
     // Update drive topic to match the robot's diff-drive plugin topic
-    setDriveTopic(`/model/${name}/cmd_vel`);
+    const newTopic = `/model/${name}/cmd_vel`;
+    setDriveTopic(newTopic);
+    keyDriveRef.current.topic = newTopic; // update ref for active keyboard drive
   };
 
   const renderRobot = () => (
@@ -653,6 +730,56 @@ export default function Sidebar() {
       <div style={{ fontSize: 9, color: "var(--text-dim)", marginTop: 6, textAlign: "center" }}>
         ▲ Forward &ensp; ▼ Backward &ensp; ◄► Turn &ensp; ■ Stop
       </div>
+
+      <div style={labelStyle}>Keyboard Drive</div>
+      <button
+        onClick={() => keyDriveActive ? stopKeyDrive() : startKeyDrive()}
+        style={{
+          ...btnFullStyle(keyDriveActive),
+          background: keyDriveActive ? "rgba(52, 211, 153, 0.2)" : undefined,
+          borderColor: keyDriveActive ? "rgba(52, 211, 153, 0.5)" : undefined,
+          color: keyDriveActive ? "var(--green)" : undefined,
+        }}
+      >
+        {keyDriveActive ? "🎮 WASD Active — Press ESC to stop" : "🎮 Enable WASD Keyboard Drive"}
+      </button>
+      {keyDriveActive && (
+        <div style={{
+          marginTop: 6, padding: "8px", borderRadius: 4,
+          background: "rgba(52, 211, 153, 0.06)", border: "1px solid rgba(52, 211, 153, 0.15)",
+          fontSize: 10, color: "var(--text-dim)", lineHeight: 1.6,
+        }}>
+          <div><b style={{ color: "var(--green)" }}>W</b> Forward &ensp; <b style={{ color: "var(--green)" }}>S</b> Backward</div>
+          <div><b style={{ color: "var(--green)" }}>A</b> Turn Left &ensp; <b style={{ color: "var(--green)" }}>D</b> Turn Right</div>
+          <div><b style={{ color: "var(--green)" }}>Q</b> Curve Left &ensp; <b style={{ color: "var(--green)" }}>E</b> Curve Right</div>
+          <div><b style={{ color: "var(--text-dim)" }}>ESC</b> Stop</div>
+        </div>
+      )}
+      <div style={labelStyle}>Camera View</div>
+      <button
+        onClick={() => {
+          const next = !fpvActive;
+          setFpvActive(next);
+          window.dispatchEvent(new CustomEvent("robot-fpv", {
+            detail: { enabled: next, robotName: fpvRobotRef.current },
+          }));
+          // Auto-enable keyboard drive in FPV mode
+          if (next && !keyDriveActive) startKeyDrive();
+        }}
+        style={{
+          ...btnFullStyle(fpvActive),
+          background: fpvActive ? "rgba(251, 191, 36, 0.2)" : undefined,
+          borderColor: fpvActive ? "rgba(251, 191, 36, 0.5)" : undefined,
+          color: fpvActive ? "var(--yellow)" : undefined,
+        }}
+      >
+        {fpvActive ? "📹 Robot View ON — Click to exit" : "📹 Robot First-Person View"}
+      </button>
+      {fpvActive && (
+        <div style={{ marginTop: 4, fontSize: 9, color: "var(--yellow)", textAlign: "center" }}>
+          Camera follows robot — use WASD to drive
+        </div>
+      )}
     </div>
   );
 

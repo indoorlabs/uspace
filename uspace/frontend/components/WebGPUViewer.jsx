@@ -18,9 +18,11 @@ export default function WebGPUViewer() {
     async function initWebGPU() {
       // Dynamic import to avoid SSR issues
       const THREE = await import("three/webgpu");
+      const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
       const CameraControlsModule = await import("camera-controls");
       const CameraControls = CameraControlsModule.default;
       CameraControls.install({ THREE });
+      const gltfLoader = new GLTFLoader();
 
       if (disposed) return;
 
@@ -730,11 +732,17 @@ export default function WebGPUViewer() {
 
       const onGazeboPoses = (e) => {
         const data = e.detail;
-        if (!data.models || !groupGazebo.visible) return;
+        if (!data.models || (!groupGazebo.visible && !robotFPV)) return;
 
         if (!onGazeboPoses._logged) {
           console.log("[Gazebo] onGazeboPoses first call, models:", data.models.map(m => m.name), "gazeboMeshes:", Object.keys(gazeboMeshes));
           onGazeboPoses._logged = true;
+        }
+        if (robotFPV && robotFPVName && !onGazeboPoses._fpvDebug2) {
+          const found = data.models.find(m => m.name === robotFPVName);
+          const hasMesh = !!gazeboMeshes[robotFPVName];
+          console.log("[Gazebo] FPV debug: looking for", robotFPVName, "found in poses:", !!found, "has mesh:", hasMesh, "all names:", data.models.map(m=>m.name));
+          onGazeboPoses._fpvDebug2 = true;
         }
 
         data.models.forEach((m) => {
@@ -748,10 +756,77 @@ export default function WebGPUViewer() {
             let geom, color;
             const n = m.name;
 
-            // Robot model (parent) - render as chassis body
+            // Robot model (parent) - build from basic shapes (lightweight)
             if (n.includes("robot") && !n.includes("::")) {
-              geom = new THREE.BoxGeometry(0.4, 0.15, 0.3);
-              color = new THREE.Color(0x2299dd);
+              const group = new THREE.Group();
+              group.name = n;
+              const p = m.position;
+              if (p) group.position.set(p.x || 0, p.z || 0, -(p.y || 0));
+              const o = m.orientation;
+              if (o) group.quaternion.set(o.x || 0, o.z || 0, -(o.y || 0), o.w || 1);
+
+              const bodyMat = new THREE.MeshStandardNodeMaterial({ color: 0x2299dd, metalness: 0.4, roughness: 0.5 });
+              const darkMat = new THREE.MeshStandardNodeMaterial({ color: 0x222222, metalness: 0.3, roughness: 0.7 });
+              const accentMat = new THREE.MeshStandardNodeMaterial({ color: 0xff4400, metalness: 0.3, roughness: 0.5 });
+              const sensorMat = new THREE.MeshStandardNodeMaterial({ color: 0x44ff88, metalness: 0.5, roughness: 0.3 });
+
+              // Chassis body
+              const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.3), bodyMat);
+              chassis.position.y = 0.06;
+              chassis.castShadow = true;
+              group.add(chassis);
+
+              // Top deck
+              const deck = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.24), bodyMat);
+              deck.position.y = 0.14;
+              group.add(deck);
+
+              // Front bumper (orange accent)
+              const bumper = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.28), accentMat);
+              bumper.position.set(0.2, 0.04, 0);
+              group.add(bumper);
+
+              // Sensor tower
+              const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.1, 8), darkMat);
+              tower.position.set(0.05, 0.21, 0);
+              group.add(tower);
+
+              // Sensor head (green sphere)
+              const sensorHead = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), sensorMat);
+              sensorHead.position.set(0.05, 0.28, 0);
+              group.add(sensorHead);
+
+              // Wheels (4x)
+              const wheelGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.03, 12);
+              const wheelPositions = [
+                [0.12, -0.02, 0.17],   // front-left
+                [0.12, -0.02, -0.17],  // front-right
+                [-0.12, -0.02, 0.17],  // rear-left
+                [-0.12, -0.02, -0.17], // rear-right
+              ];
+              wheelPositions.forEach(([wx, wy, wz]) => {
+                const wheel = new THREE.Mesh(wheelGeo, darkMat);
+                wheel.position.set(wx, wy, wz);
+                wheel.rotation.x = Math.PI / 2;
+                wheel.castShadow = true;
+                group.add(wheel);
+              });
+
+              // Axles
+              const axleGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.34, 6);
+              const frontAxle = new THREE.Mesh(axleGeo, darkMat);
+              frontAxle.position.set(0.12, -0.02, 0);
+              frontAxle.rotation.x = Math.PI / 2;
+              group.add(frontAxle);
+              const rearAxle = new THREE.Mesh(axleGeo, darkMat);
+              rearAxle.position.set(-0.12, -0.02, 0);
+              rearAxle.rotation.x = Math.PI / 2;
+              group.add(rearAxle);
+
+              if (gz.g3D) gz.g3D.add(group); else groupGazebo.add(group);
+              gazeboMeshes[n] = group;
+              console.log("[Gazebo] Robot model created:", n);
+              return; // skip default mesh creation
             // Robot sub-links - skip (parent model has the real pose)
             } else if (["chassis","left_wheel","right_wheel","caster","front_marker"].includes(n)) {
               return;
@@ -792,7 +867,43 @@ export default function WebGPUViewer() {
           if (o) {
             mesh.quaternion.set(o.x || 0, o.z || 0, -(o.y || 0), o.w || 1);
           }
+
+          // FPV camera tracking moved to render loop for smooth updates
         });
+      };
+
+      // --- Robot First-Person View ---
+      let robotFPV = false;
+      let robotFPVName = null;
+      const savedCamState = { position: null, target: null };
+
+      const onRobotFPV = (e) => {
+        const { enabled, robotName } = e.detail;
+        robotFPV = enabled;
+        robotFPVName = robotName || null;
+
+        if (enabled) {
+          // Save current camera state
+          const camPos = camera.position.clone();
+          const target = new THREE.Vector3();
+          controls.getTarget(target);
+          savedCamState.position = camPos;
+          savedCamState.target = target;
+          // Disable orbit controls
+          controls.enabled = false;
+          console.log("[Gazebo] FPV enabled for:", robotName);
+        } else {
+          // Restore camera
+          controls.enabled = true;
+          if (savedCamState.position) {
+            controls.setLookAt(
+              savedCamState.position.x, savedCamState.position.y, savedCamState.position.z,
+              savedCamState.target.x, savedCamState.target.y, savedCamState.target.z,
+              true
+            );
+          }
+          console.log("[Gazebo] FPV disabled");
+        }
       };
 
       // --- Gazebo Visualization Controls ---
@@ -880,6 +991,14 @@ export default function WebGPUViewer() {
         gazeboMeshes[p.name] = mesh;
       };
 
+      // Track robot model preferences
+      const robotModelMap = {}; // namePattern → model name
+      const onGazeboRobotModel = (e) => {
+        const { namePattern, model } = e.detail;
+        robotModelMap[namePattern] = model;
+        console.log("[Gazebo] Robot model set:", namePattern, "→", model);
+      };
+
       const onGazeboScreenshot = () => {
         renderer.render(scene, camera);
         const dataURL = renderer.domElement.toDataURL("image/png");
@@ -896,6 +1015,8 @@ export default function WebGPUViewer() {
       window.addEventListener("gazebo-scene", onGazeboScene);
       window.addEventListener("gazebo-poses", onGazeboPoses);
       window.addEventListener("gazebo-spawn", onGazeboSpawn);
+      window.addEventListener("robot-fpv", onRobotFPV);
+      window.addEventListener("gazebo-robot-model", onGazeboRobotModel);
       window.addEventListener("gazebo-viz", onGazeboViz);
       window.addEventListener("gazebo-screenshot", onGazeboScreenshot);
 
@@ -908,7 +1029,25 @@ export default function WebGPUViewer() {
       const animate = () => {
         if (disposed) return;
         requestAnimationFrame(animate);
-        controls.update(clock.getDelta());
+
+        // FPV: follow robot in render loop
+        if (robotFPV && robotFPVName && gazeboMeshes[robotFPVName]) {
+          const mesh = gazeboMeshes[robotFPVName];
+          const robotPos = mesh.position.clone();
+          const forward = new THREE.Vector3(1, 0, 0);
+          forward.applyQuaternion(mesh.quaternion);
+          forward.y = 0;
+          forward.normalize();
+          const behind = forward.clone().multiplyScalar(-1.5);
+          behind.y = 0.8;
+          camera.position.copy(robotPos.clone().add(behind));
+          const ahead = forward.clone().multiplyScalar(3);
+          ahead.y = 0.2;
+          camera.lookAt(robotPos.clone().add(ahead));
+        } else {
+          controls.update(clock.getDelta());
+        }
+
         try {
           renderer.render(scene, camera);
         } catch (e) {
@@ -927,7 +1066,7 @@ export default function WebGPUViewer() {
       };
       window.addEventListener("resize", onResize);
 
-      viewerRef.current = { renderer, scene, camera, controls, onResize, onToggle2D, onToggle3D, onSelectFloor, onWallMode, onGazeboScene, onGazeboPoses, onGazeboSpawn, onGazeboViz, onGazeboScreenshot };
+      viewerRef.current = { renderer, scene, camera, controls, onResize, onToggle2D, onToggle3D, onSelectFloor, onWallMode, onGazeboScene, onGazeboPoses, onGazeboSpawn, onGazeboRobotModel, onRobotFPV, onGazeboViz, onGazeboScreenshot };
     }
 
     initWebGPU();
@@ -935,7 +1074,7 @@ export default function WebGPUViewer() {
     return () => {
       disposed = true;
       if (viewerRef.current) {
-        const { renderer, onResize, onToggle2D, onToggle3D, onSelectFloor, onWallMode, onGazeboScene, onGazeboPoses, onGazeboSpawn, onGazeboViz, onGazeboScreenshot } = viewerRef.current;
+        const { renderer, onResize, onToggle2D, onToggle3D, onSelectFloor, onWallMode, onGazeboScene, onGazeboPoses, onGazeboSpawn, onGazeboRobotModel, onRobotFPV, onGazeboViz, onGazeboScreenshot } = viewerRef.current;
         window.removeEventListener("resize", onResize);
         window.removeEventListener("toggle-2d", onToggle2D);
         window.removeEventListener("toggle-3d", onToggle3D);
@@ -944,6 +1083,8 @@ export default function WebGPUViewer() {
         window.removeEventListener("gazebo-scene", onGazeboScene);
         window.removeEventListener("gazebo-poses", onGazeboPoses);
         window.removeEventListener("gazebo-spawn", onGazeboSpawn);
+        window.removeEventListener("robot-fpv", onRobotFPV);
+        window.removeEventListener("gazebo-robot-model", onGazeboRobotModel);
         window.removeEventListener("gazebo-viz", onGazeboViz);
         window.removeEventListener("gazebo-screenshot", onGazeboScreenshot);
         if (mount.contains(renderer.domElement)) {
